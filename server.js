@@ -82,34 +82,42 @@ app.get('/api/week', (req, res) => {
   
 
 // ------------------------------
-// Endpoint: GET /api/30days
-// Returns the latest 30 days of exchange rate data.
+// Updated Endpoint: GET /api/30days
+// Returns exchange rate data for the last 30 days (from 30 days ago to yesterday)
 app.get('/api/30days', (req, res) => {
-  const query = "SELECT date, rate FROM exchange_rates ORDER BY date DESC LIMIT 30";
-  connection.query(query, (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: "Error fetching 30-day data" });
-    }
-    const chartData = formatChartData(results);
-    res.json(chartData);
+    const query = `
+      SELECT date, rate FROM exchange_rates
+      WHERE date BETWEEN DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+      ORDER BY date ASC
+    `;
+    connection.query(query, (err, results) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: "Error fetching 30-day data" });
+      }
+      const chartData = formatChartData(results);
+      res.json(chartData);
+    });
   });
-});
-
-// ------------------------------
-// Endpoint: GET /api/90days
-// Returns the latest 90 days of exchange rate data.
-app.get('/api/90days', (req, res) => {
-  const query = "SELECT date, rate FROM exchange_rates ORDER BY date DESC LIMIT 90";
-  connection.query(query, (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: "Error fetching 90-day data" });
-    }
-    const chartData = formatChartData(results);
-    res.json(chartData);
+  
+  // ------------------------------
+  // Updated Endpoint: GET /api/90days
+  // Returns exchange rate data for the last 90 days (from 90 days ago to yesterday)
+  app.get('/api/90days', (req, res) => {
+    const query = `
+      SELECT date, rate FROM exchange_rates
+      WHERE date BETWEEN DATE_SUB(CURDATE(), INTERVAL 90 DAY) AND DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+      ORDER BY date ASC
+    `;
+    connection.query(query, (err, results) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: "Error fetching 90-day data" });
+      }
+      const chartData = formatChartData(results);
+      res.json(chartData);
+    });
   });
-});
 
 // ------------------------------
 // Endpoint: GET /api/news
