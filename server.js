@@ -63,17 +63,23 @@ app.get('/api/currentRate', (req, res) => {
 // ------------------------------
 // Endpoint: GET /api/week
 // Returns the latest 7 days of exchange rate data.
+// Updated /api/week to select data from the last 7 days based on date
 app.get('/api/week', (req, res) => {
-  const query = "SELECT date, rate FROM exchange_rates ORDER BY date DESC LIMIT 7";
-  connection.query(query, (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: "Error fetching weekly data" });
-    }
-    const chartData = formatChartData(results);
-    res.json(chartData);
+    const query = `
+      SELECT date, rate FROM exchange_rates
+      WHERE date BETWEEN DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+      ORDER BY date ASC
+    `;
+    connection.query(query, (err, results) => {
+      if (err) {
+        console.error(err);
+        return res.status(500).json({ error: "Error fetching weekly data" });
+      }
+      const chartData = formatChartData(results);
+      res.json(chartData);
+    });
   });
-});
+  
 
 // ------------------------------
 // Endpoint: GET /api/30days
@@ -254,6 +260,54 @@ app.get('/api/prediction', (req, res) => {
     });
   });
 });
+// ------------------------------
+// Endpoint: GET /api/updateRate
+// Fetches the latest exchange rate from Fixer API for yesterday's date
+// and updates the exchange_rates table.
+app.get('/api/updateRate', async (req, res) => {
+    try {
+      // Calculate the target date: for example, yesterday.
+      const today = new Date();
+      const targetDate = new Date(today);
+      targetDate.setDate(today.getDate() - 1);
+      const dateStr = formatDate(targetDate);
+  
+      // Call Fixer API to get the latest exchange rates.
+      const fixerResponse = await axios.get('http://data.fixer.io/api/latest', {
+        params: {
+          access_key: process.env.FIXER_API_KEY,
+          symbols: 'USD,IRR'
+        }
+      });
+  
+      if (!fixerResponse.data.success) {
+        return res.status(500).json({
+          error: 'Failed to fetch rate from fixer.io: ' +
+            (fixerResponse.data.error ? fixerResponse.data.error.info : 'Unknown error')
+        });
+      }
+  
+      const rates = fixerResponse.data.rates;
+      const usdToIrr = rates.IRR / rates.USD;
+  
+      // Insert or update the exchange_rates table.
+      const query = `
+        INSERT INTO exchange_rates (date, rate) VALUES (?, ?)
+        ON DUPLICATE KEY UPDATE rate = ?
+      `;
+      connection.query(query, [dateStr, usdToIrr, usdToIrr], (err, result) => {
+        if (err) {
+          console.error(err);
+          return res.status(500).json({ error: "Failed to update exchange rate" });
+        }
+        res.json({ message: "Exchange rate updated", date: dateStr, rate: usdToIrr });
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+  
 
 // ------------------------------
 // Start the Server
