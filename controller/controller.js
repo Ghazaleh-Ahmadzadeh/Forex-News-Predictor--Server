@@ -6,17 +6,20 @@ dotenv.config();
 
 const languageClient = new LanguageServiceClient();
 
-// Helper function: Format a Date as YYYY-MM-DD
+// Helper: Format a Date as YYYY-MM-DD (if needed)
 function formatDate(date) {
   return date.toISOString().split('T')[0];
 }
 
-// Helper function to format MySQL results into Chart.js data
+// Helper: Convert Date to Unix timestamp (in seconds)
+function getUnixTimestamp(date) {
+  return Math.floor(date.getTime() / 1000);
+}
+
+// Helper: Format rows into Chart.js data format
 function formatChartData(rows) {
   rows.sort((a, b) => new Date(a.date) - new Date(b.date));
-  const labels = rows.map(row =>
-    row.date.toISOString ? row.date.toISOString().split('T')[0] : row.date
-  );
+  const labels = rows.map(row => row.date.toString());
   const data = rows.map(row => parseFloat(row.rate));
   return {
     labels,
@@ -30,76 +33,123 @@ function formatChartData(rows) {
       },
     ],
   };
-}
-
-// GET /api/currentRate
-const getCurrentRate = (req, res) => {
-  const query = "SELECT rate FROM exchange_rates ORDER BY date DESC LIMIT 1";
-  connection.query(query, (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: "Error fetching current rate" });
-    }
-    if (results.length === 0) {
-      return res.json({ currentRate: "No Data" });
-    }
-    const rate = results[0].rate;
-    res.json({ currentRate: parseFloat(rate).toString() + " IRR per USD" });
-  });
 };
 
-// GET /api/week - data from 7 days ago to yesterday
-const getWeekData = (req, res) => {
-  const query = `
-    SELECT date, rate FROM exchange_rates
-    WHERE date BETWEEN DATE_SUB(CURDATE(), INTERVAL 7 DAY) AND DATE_SUB(CURDATE(), INTERVAL 1 DAY)
-    ORDER BY date ASC
-  `;
-  connection.query(query, (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: "Error fetching weekly data" });
+// GET /api/currentRate - Use the "latest" endpoint to get current rate (using 'harat_naghdi_sell')
+const getCurrentRate = async (req, res) => {
+    try {
+      const apiKey = process.env.NAVASAN_API_KEY;
+      const response = await axios.get('http://api.navasan.tech/latest/', {
+        params: {
+          api_key: apiKey,
+          item: 'usd'
+        }
+      });
+      console.log("getCurrentRate response data:", response.data);
+      if (response.data && response.data.usd && response.data.usd.value) {
+        const rate = response.data.usd.value;
+        res.json({ currentRate: rate + " IRR per USD" });
+      } else {
+        res.status(404).json({ error: "No data available for current rate" });
+      }
+    } catch (error) {
+      console.error("Error in getCurrentRate:", error);
+      res.status(500).json({ error: "Failed to fetch current rate" });
     }
-    const chartData = formatChartData(results);
+  };  
+  
+
+// GET /api/week - Last 7 days (using Unix timestamps for start/end)
+const getWeekData = async (req, res) => {
+  try {
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() - 1);
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - 6);
+    const startTs = getUnixTimestamp(startDate);
+    const endTs = getUnixTimestamp(endDate);
+    const apiKey = process.env.NAVASAN_API_KEY;
+    const response = await axios.get('http://api.navasan.tech/ohlcSearch/', {
+      params: {
+        api_key: apiKey,
+        item: 'usd_sell',
+        start: startTs,
+        end: endTs
+      }
+    });
+    const data = response.data.map(record => ({
+      date: record.date,
+      rate: record.close
+    }));
+    const chartData = formatChartData(data);
     res.json(chartData);
-  });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to fetch weekly data" });
+  }
 };
 
-// GET /api/30days - data from 30 days ago to yesterday
-const get30DaysData = (req, res) => {
-  const query = `
-    SELECT date, rate FROM exchange_rates
-    WHERE date BETWEEN DATE_SUB(CURDATE(), INTERVAL 30 DAY) AND DATE_SUB(CURDATE(), INTERVAL 1 DAY)
-    ORDER BY date ASC
-  `;
-  connection.query(query, (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: "Error fetching 30-day data" });
-    }
-    const chartData = formatChartData(results);
+// GET /api/30days - Last 30 days (from 30 days ago to yesterday)
+const get30DaysData = async (req, res) => {
+  try {
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() - 1);
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - 29);
+    const startTs = getUnixTimestamp(startDate);
+    const endTs = getUnixTimestamp(endDate);
+    const apiKey = process.env.NAVASAN_API_KEY;
+    const response = await axios.get('http://api.navasan.tech/ohlcSearch/', {
+      params: {
+        api_key: apiKey,
+        item: 'usd_sell',
+        start: startTs,
+        end: endTs
+      }
+    });
+    const data = response.data.map(record => ({
+      date: record.date,
+      rate: record.close
+    }));
+    const chartData = formatChartData(data);
     res.json(chartData);
-  });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to fetch 30-day data" });
+  }
 };
 
-// GET /api/90days - data from 90 days ago to yesterday
-const get90DaysData = (req, res) => {
-  const query = `
-    SELECT date, rate FROM exchange_rates
-    WHERE date BETWEEN DATE_SUB(CURDATE(), INTERVAL 90 DAY) AND DATE_SUB(CURDATE(), INTERVAL 1 DAY)
-    ORDER BY date ASC
-  `;
-  connection.query(query, (err, results) => {
-    if (err) {
-      console.error(err);
-      return res.status(500).json({ error: "Error fetching 90-day data" });
-    }
-    const chartData = formatChartData(results);
+// GET /api/90days - Last 90 days (from 90 days ago to yesterday)
+const get90DaysData = async (req, res) => {
+  try {
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() - 1);
+    const startDate = new Date();
+    startDate.setDate(endDate.getDate() - 89);
+    const startTs = getUnixTimestamp(startDate);
+    const endTs = getUnixTimestamp(endDate);
+    const apiKey = process.env.NAVASAN_API_KEY;
+    const response = await axios.get('http://api.navasan.tech/ohlcSearch/', {
+      params: {
+        api_key: apiKey,
+        item: 'usd_sell',
+        start: startTs,
+        end: endTs
+      }
+    });
+    const data = response.data.map(record => ({
+      date: record.date,
+      rate: record.close
+    }));
+    const chartData = formatChartData(data);
     res.json(chartData);
-  });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Failed to fetch 90-day data" });
+  }
 };
 
-// GET /api/news
+// GET /api/news - Uses NewsAPI (unchanged)
 const getNews = async (req, res) => {
   try {
     const today = new Date();
@@ -178,72 +228,80 @@ const getNews = async (req, res) => {
   }
 };
 
-// GET /api/prediction
+// GET /api/prediction - Dummy ML-based prediction using historical data
 const getPrediction = (req, res) => {
-  const rateQuery = "SELECT rate FROM exchange_rates WHERE date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
-  connection.query(rateQuery, (rateErr, rateResults) => {
-    if (rateErr) {
-      console.error(rateErr);
-      return res.status(500).json({ error: "Error fetching exchange rates" });
-    }
-    if (!rateResults.length) {
-      return res.status(500).json({ error: "No exchange rate data available" });
-    }
-    const totalRate = rateResults.reduce((sum, row) => sum + parseFloat(row.rate), 0);
-    const avgRate = totalRate / rateResults.length;
-    const sentimentQuery = "SELECT sentiment FROM news_articles WHERE publishedAt >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
-    connection.query(sentimentQuery, (sentErr, sentResults) => {
-      if (sentErr) {
-        console.error(sentErr);
-        return res.status(500).json({ error: "Error fetching news sentiment" });
+    // Use all exchange rate records for prediction
+    const rateQuery = "SELECT rate FROM exchange_rates";
+    connection.query(rateQuery, (rateErr, rateResults) => {
+      if (rateErr) {
+        console.error(rateErr);
+        return res.status(500).json({ error: "Error fetching exchange rates" });
       }
-      let sentimentSum = 0;
-      let count = 0;
-      sentResults.forEach(row => {
-        if (row.sentiment === 'positive') {
-          sentimentSum += 1;
-          count++;
-        } else if (row.sentiment === 'negative') {
-          sentimentSum += -1;
-          count++;
-        } else if (row.sentiment === 'neutral') {
-          sentimentSum += 0;
-          count++;
+      if (!rateResults.length) {
+        return res.status(500).json({ error: "No exchange rate data available" });
+      }
+      const totalRate = rateResults.reduce((sum, row) => sum + parseFloat(row.rate), 0);
+      const avgRate = totalRate / rateResults.length;
+      
+      // Use news from the last 30 days for sentiment analysis.
+      const sentimentQuery = "SELECT sentiment FROM news_articles WHERE publishedAt >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
+      connection.query(sentimentQuery, (sentErr, sentResults) => {
+        if (sentErr) {
+          console.error(sentErr);
+          return res.status(500).json({ error: "Error fetching news sentiment" });
         }
-      });
-      const avgSentiment = count ? (sentimentSum / count) : 0;
-      const predictedRate = avgRate * (1 + (avgSentiment * 0.001));
-      const sentimentFactor = Math.min(count / 30, 1);
-      const confidence = 50 + (Math.abs(avgSentiment) * 50 * sentimentFactor);
-      res.json({
-        tomorrowsPrediction: predictedRate.toFixed(2) + " IRR",
-        confidence: confidence.toFixed(2)
+        let sentimentSum = 0;
+        let count = 0;
+        sentResults.forEach(row => {
+          if (row.sentiment === 'positive') {
+            sentimentSum += 1;
+            count++;
+          } else if (row.sentiment === 'negative') {
+            sentimentSum += -1;
+            count++;
+          } else if (row.sentiment === 'neutral') {
+            sentimentSum += 0;
+            count++;
+          }
+        });
+        const avgSentiment = count ? (sentimentSum / count) : 0;
+        
+        // Dummy ML-based prediction: Adjust the average rate by a factor based on the average sentiment.
+        const predictedRate = avgRate * (1.25 + (avgSentiment * 0.05));
+        
+        // Calculate confidence: base 50% plus a factor that scales with the absolute average sentiment,
+        const sentimentFactor = Math.min(count / 30, 1);
+        const confidence = 50 + (Math.abs(avgSentiment) * 50 * sentimentFactor);
+        
+        res.json({
+          tomorrowsPrediction: predictedRate.toFixed(2) + " IRR",
+          confidence: confidence.toFixed(2)
+        });
       });
     });
-  });
-};
+  };  
 
-// GET /api/updateRate
+// GET /api/updateRate - Updates exchange_rates table with yesterday's close rate from Navasan API
 const updateRate = async (req, res) => {
   try {
     const today = new Date();
     const targetDate = new Date(today);
     targetDate.setDate(today.getDate() - 1);
     const dateStr = formatDate(targetDate);
-    const fixerResponse = await axios.get('http://data.fixer.io/api/latest', {
+    const apiKey = process.env.NAVASAN_API_KEY;
+    const ts = getUnixTimestamp(targetDate);
+    const response = await axios.get('http://api.navasan.tech/ohlcSearch/', {
       params: {
-        access_key: process.env.FIXER_API_KEY,
-        symbols: 'USD,IRR'
+        api_key: apiKey,
+        item: 'usd_sell',
+        start: ts,
+        end: ts
       }
     });
-    if (!fixerResponse.data.success) {
-      return res.status(500).json({
-        error: 'Failed to fetch rate from fixer.io: ' +
-          (fixerResponse.data.error ? fixerResponse.data.error.info : 'Unknown error')
-      });
+    if (!response.data || response.data.length === 0) {
+      return res.status(404).json({ error: "No data available for update" });
     }
-    const rates = fixerResponse.data.rates;
-    const usdToIrr = rates.IRR / rates.USD;
+    const usdToIrr = response.data[0].close;
     const query = `
       INSERT INTO exchange_rates (date, rate) VALUES (?, ?)
       ON DUPLICATE KEY UPDATE rate = ?
