@@ -1,0 +1,111 @@
+# Forex News Predictor
+
+A full-stack web application that combines news sentiment analysis and historical USD to IRR exchange rate data to provide daily predictions of exchange rates using a mock machine learning model.
+
+---
+
+## Tech Stack
+
+- **Frontend**: React, SCSS, Chart.js
+- **Backend**: Node.js, Express, MySQL
+- **APIs Used**:
+  - [Navasan API](https://navasan.tech/) for currency data
+  - [NewsAPI](https://newsapi.org/) for news headlines
+  - [Google Cloud Natural Language API](https://cloud.google.com/natural-language) for sentiment analysis
+
+---
+
+## Features
+
+- 7-day, 30-day, and 90-day exchange rate charts
+- Prediction card showing next day forecast + confidence level
+- Real-time news scraping & sentiment tagging
+- Sentiment-based mock ML predictions
+- Cron job support for daily currency rate updates
+
+---
+
+## Prerequisites
+
+- Node.js (v18+ recommended)
+- MySQL installed & running
+- Google Cloud account with Natural Language API enabled
+- Git
+
+---
+
+## Setup Instructions
+
+### 1. **Clone the repository**
+
+```bash
+git clone https://github.com/your-username/forex-news-predictor.git
+cd forex-news-predictor
+
+---
+### 2. ** MYSQL Database Setup **
+
+1- CREATE DATABASE forex_news;
+
+2- Import the Databse Scheme:
+
+An SQL dump file named forex_news.sql is provided. Import it into your MySQL instance:
+
+mysql -u your_username -p forex_news < forex_news.sql
+
+---
+### 3. ** Configure Environment Variables **
+
+Create a .env file in the root of the backend with the following:
+
+PORT=3000
+
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=your_password
+DB_NAME=forex_news
+
+VITE_BASE_URL=http://localhost:3000
+NAVASAN_API_KEY=your_navasan_key_here
+NEWS_API_KEY=your_newsapi_key_here
+GOOGLE_APPLICATION_CREDENTIALS=absolute/path/to/your/google-credentials.json
+
+---
+
+### 4. **Google CLoud NLP Setup **
+
+1- Go to Google Cloud Console.
+
+2- Create a new project.
+
+3- Enable the Natural Language API.
+
+4- Create a Service Account, and download the JSON key.
+
+5- Reference it in your .env:
+
+GOOGLE_APPLICATION_CREDENTIALS=/absolute/path/to/your/your-key.json
+ 
+---
+
+### 5- ** Install Backend Dependencies and run server.js **
+
+1- npm i 
+
+2- node server.js
+
+---
+
+### 6- ** OPTIONAL: Set u Cron Job **
+
+1- Open your crontab:
+
+crontab -e
+
+2- Add the following line:
+
+0 9 * * * curl http://localhost:3000/api/updateRate
+
+This runs the update every day at 9:00 AM to update the rate.
+
+

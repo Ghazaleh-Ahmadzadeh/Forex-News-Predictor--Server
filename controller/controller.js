@@ -6,7 +6,7 @@ dotenv.config();
 
 const languageClient = new LanguageServiceClient();
 
-// Helper: Format a Date as YYYY-MM-DD (if needed)
+// Helper: Format a Date as YYYY-MM-DD 
 function formatDate(date) {
   return date.toISOString().split('T')[0];
 }
