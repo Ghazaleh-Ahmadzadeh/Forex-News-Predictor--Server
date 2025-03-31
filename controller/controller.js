@@ -35,7 +35,7 @@ function formatChartData(rows) {
   };
 };
 
-// GET /api/currentRate - Use the "latest" endpoint to get current rate (using 'harat_naghdi_sell')
+// GET /api/currentRate - Use the "latest" endpoint to get current rate 
 const getCurrentRate = async (req, res) => {
     try {
       const apiKey = process.env.NAVASAN_API_KEY;
@@ -149,137 +149,120 @@ const get90DaysData = async (req, res) => {
   }
 };
 
-// GET /api/news - Uses NewsAPI (unchanged)
+// GET /api/news 
 const getNews = async (req, res) => {
-  try {
-    const today = new Date();
-    const oneMonthAgo = new Date();
-    oneMonthAgo.setMonth(today.getMonth() - 1);
-    const fromDate = formatDate(oneMonthAgo);
-    const toDate = formatDate(today);
-    const newsResponse = await axios.get('https://newsapi.org/v2/everything', {
-      params: {
-        q: 'Iran AND Trump',
-        from: fromDate,
-        to: toDate,
-        sortBy: 'publishedAt',
-        language: 'en',
-        pageSize: 100,
-        apiKey: process.env.NEWS_API_KEY,
-      },
-    });
-    console.log('NewsAPI response:', newsResponse.data);
-    const articles = newsResponse.data.articles || [];
-    const processedArticles = await Promise.all(
-      articles.map(async (article) => {
-        try {
-          const textToAnalyze = article.content || article.description || '';
-          let sentimentLabel = 'neutral';
-          if (textToAnalyze) {
-            const document = { content: textToAnalyze, type: 'PLAIN_TEXT' };
-            const [result] = await languageClient.analyzeSentiment({ document });
-            const sentimentScore = result.documentSentiment.score;
-            if (sentimentScore > 0.2) {
-              sentimentLabel = 'positive';
-            } else if (sentimentScore < -0.2) {
-              sentimentLabel = 'negative';
+    try {
+      // Use fixed dates for the query:
+      const fromDate = "2025-02-28";
+      const toDate = "2025-03-30";
+      
+      const newsResponse = await axios.get('https://newsapi.org/v2/everything', {
+        params: {
+          apiKey: process.env.NEWS_API_KEY,
+          q: 'Iran AND Trump',
+          from: fromDate,
+          to: toDate,
+          sortBy: 'popularity',
+          language: 'en',
+          pageSize: 100,
+          page: 1
+        },
+      });
+      console.log('NewsAPI response:', newsResponse.data);
+      
+      const articles = newsResponse.data.articles || [];
+      
+      const processedArticles = await Promise.all(
+        articles.map(async (article) => {
+          try {
+            const textToAnalyze = article.content || article.description || '';
+            let sentimentLabel = 'neutral';
+            if (textToAnalyze) {
+              const document = { content: textToAnalyze, type: 'PLAIN_TEXT' };
+              const [result] = await languageClient.analyzeSentiment({ document });
+              const sentimentScore = result.documentSentiment.score;
+              if (sentimentScore > 0.2) {
+                sentimentLabel = 'positive';
+              } else if (sentimentScore < -0.2) {
+                sentimentLabel = 'negative';
+              }
+            } else {
+              console.warn(`No content to analyze for article: "${article.title}"`);
             }
-          } else {
-            console.warn(`No content to analyze for article: "${article.title}"`);
+            // Convert publishedAt to only the date (YYYY-MM-DD)
+            const publishedDateString = new Date(article.publishedAt)
+              .toISOString()
+              .split('T')[0];
+    
+            // Insert the article into the news_articles table
+            const sql = 'INSERT INTO news_articles (title, source, publishedAt, content, sentiment, url) VALUES (?, ?, ?, ?, ?, ?)';
+            const values = [
+              article.title,
+              article.source && article.source.name ? article.source.name : 'Unknown',
+              publishedDateString,
+              article.description || '',
+              sentimentLabel,
+              article.url || ''
+            ];
+            connection.query(sql, values, (error) => {
+              if (error) {
+                console.error('MySQL insert error for article:', article.title, error);
+              }
+            });
+    
+            return {
+              title: article.title,
+              publishedAt: publishedDateString,
+              sentiment: sentimentLabel,
+              description: article.description || '',
+              url: article.url || '#'
+            };
+          } catch (articleError) {
+            console.error('Error processing article:', article.title, articleError);
+            const publishedDateString = article.publishedAt
+              ? new Date(article.publishedAt).toISOString().split('T')[0]
+              : new Date().toISOString().split('T')[0];
+            return {
+              title: article.title,
+              publishedAt: publishedDateString,
+              sentiment: 'error',
+              description: article.description || '',
+              url: article.url || '#'
+            };
           }
-          const publishedAt = article.publishedAt ? new Date(article.publishedAt) : new Date();
-          const sql = 'INSERT INTO news_articles (title, source, publishedAt, content, sentiment, url) VALUES (?, ?, ?, ?, ?, ?)';
-          const values = [
-            article.title,
-            article.source && article.source.name ? article.source.name : 'Unknown',
-            publishedAt,
-            article.description || '',
-            sentimentLabel,
-            article.url || ''
-          ];
-          connection.query(sql, values, (error) => {
-            if (error) {
-              console.error('MySQL insert error for article:', article.title, error);
-            }
-          });
-          return {
-            title: article.title,
-            publishedAt,
-            sentiment: sentimentLabel,
-            description: article.description || '',
-            url: article.url || '#'
-          };
-        } catch (articleError) {
-          console.error('Error processing article:', article.title, articleError);
-          return {
-            title: article.title,
-            publishedAt: article.publishedAt ? new Date(article.publishedAt) : new Date(),
-            sentiment: 'error',
-            description: article.description || '',
-            url: article.url || '#'
-          };
-        }
-      })
-    );
-    res.json({ articles: processedArticles });
+        })
+      );
+      
+      // Sort the processed articles by publishedAt 
+      processedArticles.sort((a, b) => new Date(b.publishedAt) - new Date(a.publishedAt));
+      
+      res.json({ articles: processedArticles });
+    } catch (error) {
+      console.error('Error in /api/news:', error.message);
+      res.status(500).json({ error: 'Failed to fetch or process news articles', details: error.message });
+    }
+  };    
+
+// GET /api/prediction 
+
+const getPrediction = async (req, res) => {
+  try {
+    // Call the Python prediction API
+    const response = await axios.get('http://localhost:5002/predict');
+    // Return the JSON response from the Python API
+    res.json(response.data);
   } catch (error) {
-    console.error('Error in /api/news:', error);
-    res.status(500).json({ error: 'Failed to fetch or process news articles' });
+    console.error("Error in getPrediction:", error.message);
+    res.status(500).json({ error: "Prediction failed", details: error.message });
   }
 };
 
-// GET /api/prediction - Dummy ML-based prediction using historical data
-const getPrediction = (req, res) => {
-    // Use all exchange rate records for prediction
-    const rateQuery = "SELECT rate FROM exchange_rates";
-    connection.query(rateQuery, (rateErr, rateResults) => {
-      if (rateErr) {
-        console.error(rateErr);
-        return res.status(500).json({ error: "Error fetching exchange rates" });
-      }
-      if (!rateResults.length) {
-        return res.status(500).json({ error: "No exchange rate data available" });
-      }
-      const totalRate = rateResults.reduce((sum, row) => sum + parseFloat(row.rate), 0);
-      const avgRate = totalRate / rateResults.length;
-      
-      // Use news from the last 30 days for sentiment analysis.
-      const sentimentQuery = "SELECT sentiment FROM news_articles WHERE publishedAt >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)";
-      connection.query(sentimentQuery, (sentErr, sentResults) => {
-        if (sentErr) {
-          console.error(sentErr);
-          return res.status(500).json({ error: "Error fetching news sentiment" });
-        }
-        let sentimentSum = 0;
-        let count = 0;
-        sentResults.forEach(row => {
-          if (row.sentiment === 'positive') {
-            sentimentSum += 1;
-            count++;
-          } else if (row.sentiment === 'negative') {
-            sentimentSum += -1;
-            count++;
-          } else if (row.sentiment === 'neutral') {
-            sentimentSum += 0;
-            count++;
-          }
-        });
-        const avgSentiment = count ? (sentimentSum / count) : 0;
-        
-        // Dummy ML-based prediction: Adjust the average rate by a factor based on the average sentiment.
-        const predictedRate = avgRate * (1.25 + (avgSentiment * 0.05));
-        
-        // Calculate confidence: base 50% plus a factor that scales with the absolute average sentiment,
-        const sentimentFactor = Math.min(count / 30, 1);
-        const confidence = 50 + (Math.abs(avgSentiment) * 50 * sentimentFactor);
-        
-        res.json({
-          tomorrowsPrediction: predictedRate.toFixed(2) + " IRR",
-          confidence: confidence.toFixed(2)
-        });
-      });
-    });
-  };  
+module.exports = {
+  // ... other endpoint exports,
+  getPrediction
+};
+
+   
 
 // GET /api/updateRate - Updates exchange_rates table with yesterday's close rate from Navasan API
 const updateRate = async (req, res) => {
